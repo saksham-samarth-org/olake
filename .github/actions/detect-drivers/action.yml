@@ -29,4 +29,5 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
+        MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
       run: ${{ github.action_path }}/detect-drivers.sh
