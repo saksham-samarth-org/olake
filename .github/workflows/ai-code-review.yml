@@ -32,7 +32,6 @@ concurrency:
         || format('ai-code-review-noop-{0}', github.run_id) }}
   cancel-in-progress: true
 
-
 permissions:
   contents: read
   pull-requests: write
