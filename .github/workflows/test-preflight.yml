@@ -244,4 +244,51 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - run: echo "go-cache stubbed for merge queue testing"
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Cache Go modules + build cache
+        uses: ./.github/actions/go-caches
+        with:
+          mode: save
+
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
+        with:
+          save: "true"
+
+      - name: Compile the driver test binaries
+        run: make test.build.all
+
+      - name: golangci-lint tests modules
+        id: lint
+        background: true
+        timeout-minutes: 15
+        run: make test.lint
+
+      - name: Unit tests for the test harness
+        id: harness-unit
+        background: true
+        timeout-minutes: 10
+        working-directory: tests
+        run: go test -v -count=1 ./testutils/...
+
+      - name: install gosec
+        if: inputs.go-checks
+        env:
+          GOSEC_VERSION: v2.22.11
+        run: $(go env GOPATH)/bin/gosec --version 2>/dev/null | grep -q "${GOSEC_VERSION#v}" || curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
+
+      - name: Run Gosec on tests modules
+        if: inputs.go-checks
+        working-directory: tests
+        run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
+
+      - name: Wait for the lint and harness unit tests
+        wait: [lint, harness-unit]
