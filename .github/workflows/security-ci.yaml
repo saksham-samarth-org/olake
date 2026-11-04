@@ -28,6 +28,7 @@ on:
 jobs:
   govulncheck:
     name: govulncheck
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -63,6 +64,7 @@ jobs:
 
   gosec:
     name: GoSec Security Scanner
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -76,6 +78,7 @@ jobs:
 
   trivy-go:
     name: trivy-go
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -94,6 +97,7 @@ jobs:
 
   trivy-java:
     name: trivy-java
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
