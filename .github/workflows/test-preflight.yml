@@ -1,6 +1,5 @@
 name: Test Preflight
 
-
 on:
   workflow_call:
     inputs:
