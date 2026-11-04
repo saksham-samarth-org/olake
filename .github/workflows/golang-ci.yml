@@ -26,4 +26,5 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
+      - run: sleep 60
       - run: echo "build-check stubbed for merge queue testing"
