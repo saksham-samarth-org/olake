@@ -20,6 +20,7 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
+      - run: sleep 120
       - run: echo "golangci stubbed for merge queue testing"
 
   build-check:
