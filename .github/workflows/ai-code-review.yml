@@ -40,7 +40,8 @@ jobs:
   review:
     name: OpenCodeReview
     if: >-
-      ${{ github.event.action != 'closed'
+      ${{ github.repository == 'datazip-inc/olake'
+          && github.event.action != 'closed'
           && !github.event.pull_request.draft
           && (github.event.action != 'labeled' || github.event.label.name == 'ai-review-deep') }}
     runs-on: ubuntu-latest
