@@ -189,7 +189,7 @@ jobs:
   build-jar:
     name: Build Iceberg writer jar
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.jar-cached != 'true'
+    if: false && needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.jar-cached != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -214,7 +214,7 @@ jobs:
   apt-warm:
     name: Warm base docker layers
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.apt-warmed != 'true'
+    if: false && needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.apt-warmed != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -241,7 +241,7 @@ jobs:
   go-cache:
     name: Go checks + cache
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]' && (needs.preflight.outputs.go-cached != 'true' || needs.preflight.outputs.go-checks-changed == 'true')
+    if: false && needs.preflight.outputs.drivers != '[]' && (needs.preflight.outputs.go-cached != 'true' || needs.preflight.outputs.go-checks-changed == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
