@@ -68,6 +68,7 @@ jobs:
       drivers-with-compatibility-tests: ${{ needs.preflight.outputs.drivers-with-compatibility-tests }}
       base-image-misses: ${{ needs.preflight.outputs.base-image-misses }}
     steps:
+      - run: sleep 120
       - run: echo "Approved -- running the end to end tests"
 
   integration-tests:
