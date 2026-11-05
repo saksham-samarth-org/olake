@@ -60,6 +60,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: git rev-parse HEAD^1 > tested-base
 
+
       - name: Upload tested base
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
