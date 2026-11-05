@@ -8,22 +8,65 @@ on:
     types: [checks_requested]
 
 jobs:
-  preflight:
-    name: Pre-Validation
-    uses: ./.github/workflows/test-preflight.yml
+  review:
+    name: Testing Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
-      packages: read
       actions: read
-    secrets: inherit
-
-  review:
-    name: Testing Review
-    needs: preflight
-    # Skip when a merge queue entry only repeats a passed PR run on the same base.
-    if: needs.preflight.outputs.redundant != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
-      - run: echo "testing-reviewer ran (not redundant)"
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      # The PR run leaves the base commit it tested against; the queue run compares it (next steps).
+      - name: Record the base this PR run tests against
+        if: github.event_name == 'pull_request'
+        run: git rev-parse HEAD^1 > reviewer-tested-base
+
+      - name: Upload tested base
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: reviewer-tested-base-${{ github.event.pull_request.head.sha }}
+          path: reviewer-tested-base
+          overwrite: true
+          retention-days: 14
+
+      # Redundant = this queue entry repeats a passed Testing Reviewer PR run on the same base.
+      - name: Detect a queue entry that repeats a passed PR run
+        id: redundant
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          redundant=false
+          pr=$(sed -n 's#.*/pr-\([0-9][0-9]*\)-.*#\1#p' <<<"$MERGE_GROUP_HEAD_REF")
+          if [ -n "$pr" ]; then
+            pr_head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha)
+            run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow testing-reviewer.yml --event pull_request \
+              --commit "$pr_head" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            if [ -n "$run_id" ]; then
+              dir=$(mktemp -d)
+              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n "reviewer-tested-base-$pr_head" -D "$dir" >/dev/null 2>&1; then
+                if [ "$(tr -d '[:space:]' <"$dir/reviewer-tested-base")" = "$MERGE_GROUP_BASE_SHA" ]; then
+                  redundant=true
+                fi
+              fi
+            fi
+          fi
+          echo "redundant=$redundant" >> "$GITHUB_OUTPUT"
+          echo "redundant: $redundant"
+
+      # Step-level skip keeps the job green, so the required check still reports success.
+      - name: Testing review
+        if: steps.redundant.outputs.redundant != 'true'
+        run: |
+          sleep 60
+          echo "testing-reviewer ran (not redundant)"
