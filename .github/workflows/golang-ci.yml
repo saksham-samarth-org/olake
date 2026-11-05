@@ -43,3 +43,5 @@ jobs:
           go-version-file: "go.mod"
       - name: Run build
         run: make build
+
+# testing: comment 2
