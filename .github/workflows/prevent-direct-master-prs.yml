@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate Branch Rules
+        if: github.event_name == 'pull_request'
         run: |
           SOURCE_BRANCH="${{ github.event.pull_request.head.ref }}"
           TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
@@ -27,6 +28,7 @@ jobs:
           fi
 
       - name: Validate PR Title
+        if: github.event_name == 'pull_request'
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
           PATTERN="^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)(\(.+\))?: .+"

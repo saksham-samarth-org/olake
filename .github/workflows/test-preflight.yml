@@ -65,7 +65,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: tested-base-${{ github.event.pull_request.head.sha }}
-          paso th: tested-base
+          path: tested-base
           overwrite: true
           retention-days: 14
 
