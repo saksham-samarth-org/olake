@@ -1,0 +1,29 @@
+name: Testing Reviewer
+
+on:
+  pull_request:
+    branches:
+      - "*"
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  preflight:
+    name: Pre-Validation
+    uses: ./.github/workflows/test-preflight.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: read
+      actions: read
+    secrets: inherit
+
+  review:
+    name: Testing Review
+    needs: preflight
+    # Skip when a merge queue entry only repeats a passed PR run on the same base.
+    if: needs.preflight.outputs.redundant != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - run: echo "testing-reviewer ran (not redundant)"
