@@ -44,25 +44,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
-        run: |
-          set -euo pipefail
-          redundant=false
-          pr=$(sed -n 's#.*/pr-\([0-9][0-9]*\)-.*#\1#p' <<<"$MERGE_GROUP_HEAD_REF")
-          if [ -n "$pr" ]; then
-            pr_head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha)
-            run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow testing-reviewer.yml --event pull_request \
-              --commit "$pr_head" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-            if [ -n "$run_id" ]; then
-              dir=$(mktemp -d)
-              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n "reviewer-tested-base-$pr_head" -D "$dir" >/dev/null 2>&1; then
-                if [ "$(tr -d '[:space:]' <"$dir/reviewer-tested-base")" = "$MERGE_GROUP_BASE_SHA" ]; then
-                  redundant=true
-                fi
-              fi
-            fi
-          fi
-          echo "redundant=$redundant" >> "$GITHUB_OUTPUT"
-          echo "redundant: $redundant"
+          REDUNDANT_WORKFLOW: testing-reviewer.yml
+          REDUNDANT_ARTIFACT_PREFIX: reviewer-tested-base
+        run: echo "redundant=$(.github/scripts/redundant-queue-run.sh)" >> "$GITHUB_OUTPUT"
 
       # Step-level skip keeps the job green, so the required check still reports success.
       - name: Testing review

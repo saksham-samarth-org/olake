@@ -1,14 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
-# Returns true if this merge queue entry has already passed tests.yml
+# Returns true if this merge queue entry has already passed a workflow
 # on the PR against the same base commit.
 # Returns false otherwise, including for events other than merge_group.
 # The PR workflow saves the base commit it tested in an artifact named
-# `tested-base-<pr head sha>`.
+# `<prefix>-<pr head sha>`, holding a file named `<prefix>`.
+#
+# REDUNDANT_WORKFLOW         workflow file to check (default: tests.yml)
+# REDUNDANT_ARTIFACT_PREFIX  artifact and file name prefix (default: tested-base)
 #
 # If another PR is ahead in the merge queue, this entry uses that PR's
 # queue commit as its base, so the base commits won't match.
+
+workflow="${REDUNDANT_WORKFLOW:-tests.yml}"
+prefix="${REDUNDANT_ARTIFACT_PREFIX:-tested-base}"
 
 # Prints true when CI can be skipped for this merge queue entry, false otherwise.
 is_ci_skippable() {
@@ -26,12 +32,12 @@ is_ci_skippable() {
     return
   fi
 
-  # A successful tests.yml run must exist for the PR's head commit.
+  # A successful run of the workflow must exist for the PR's head commit.
   local pr_head run_id
   pr_head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha)
   run_id=$(gh run list \
     --repo "$GITHUB_REPOSITORY" \
-    --workflow tests.yml \
+    --workflow "$workflow" \
     --event pull_request \
     --commit "$pr_head" \
     --status success \
@@ -46,13 +52,13 @@ is_ci_skippable() {
   # That run must have left the base commit it tested against.
   local dir
   dir=$(mktemp -d)
-  if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n "tested-base-$pr_head" -D "$dir" >/dev/null 2>&1; then
+  if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n "$prefix-$pr_head" -D "$dir" >/dev/null 2>&1; then
     echo false
     return
   fi
 
   # Skippable only when the queue entry is built on that same base commit.
-  if [ "$(tr -d '[:space:]' <"$dir/tested-base")" = "$MERGE_GROUP_BASE_SHA" ]; then
+  if [ "$(tr -d '[:space:]' <"$dir/$prefix")" = "$MERGE_GROUP_BASE_SHA" ]; then
     echo true
   else
     echo false
