@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -26,14 +25,9 @@ import (
 // Only a table's first load reads information_schema, the server's present, and get()
 // anchors that load.
 type schemaCache struct {
-	mu       sync.RWMutex
-	client   *sqlx.DB
-	tables   map[string]*tableMeta
-	gtidMode bool
-
-	// A normal run may extend its target only with reachable schema anchors.
-	replicationUUID string
-	targetGTIDSet   mysql.GTIDSet
+	mu     sync.RWMutex
+	client *sqlx.DB
+	tables map[string]*tableMeta
 	// foldCase is lower_case_table_names 1 or 2: the server compares table names case-insensitively.
 	foldCase bool
 	// streamed are the keys of the tables the sync captures. A CREATE of one is read from its
@@ -46,32 +40,25 @@ type schemaCache struct {
 	dropped map[string]bool
 	// schemaDefaults keeps a database's default collation from its last dropped table, for a CREATE
 	// in it once no cached table carries the default.
-	schemaDefaults map[string]*tableMeta
+	schemaDefaults map[string]uint64
 }
 
 // newSchemaCache starts from the previous run's saved schemas, keeping only those valid at or
 // before the resume position. A later anchor may already include DDL the reader has not reached,
 // so that table is reloaded instead. An empty anchor would compare as earliest, so it is skipped.
-// A committed GTID checkpoint instead proves every saved schema independently of file positions.
 func newSchemaCache(client *sqlx.DB, state Binlog, foldCase bool) *schemaCache {
 	c := &schemaCache{
 		client:         client,
 		tables:         map[string]*tableMeta{},
 		foldCase:       foldCase,
-		gtidMode:       state.GTIDSet != nil,
 		streamed:       map[string]bool{},
 		dropped:        map[string]bool{},
-		schemaDefaults: map[string]*tableMeta{},
+		schemaDefaults: map[string]uint64{},
 	}
 	for key, meta := range state.Schemas {
-		if meta != nil && (c.gtidMode || (meta.AnchoredAt.Name != "" && meta.AnchoredAt.Compare(state.Position) <= 0)) {
+		if meta != nil && meta.AnchoredAt.Name != "" && meta.AnchoredAt.Compare(state.Position) <= 0 {
 			if foldCase {
 				key = strings.ToLower(key)
-			}
-			if c.gtidMode {
-				// The committed GTID checkpoint already proved these schemas, regardless of server coordinates.
-				meta = meta.clone()
-				meta.gtidAnchor = nil
 			}
 			c.tables[key] = meta
 		}
@@ -175,23 +162,7 @@ func (c *schemaCache) get(ctx context.Context, schema, table string, tableID uin
 
 	// Read the position after load, never before: a DDL in between then lands before the
 	// anchor, so a later run rejects this entry instead of reusing a schema from the future.
-	if c.gtidMode {
-		var state Binlog
-		state, err = GetCurrentBinlogState(ctx, c.client)
-		if err == nil {
-			if state.GTIDSet == nil {
-				return nil, fmt.Errorf("%w: GTID column metadata requires gtid_mode=ON", constants.ErrNonRetryable)
-			}
-			meta.AnchoredAt = state.Position
-			meta.gtidAnchor, err = parseGTIDSet(*state.GTIDSet)
-			if err == nil && c.targetGTIDSet != nil && state.ServerUUID != c.replicationUUID && !c.targetGTIDSet.Contain(meta.gtidAnchor) {
-				return nil, fmt.Errorf("MySQL server changed while loading column metadata for %s.%s: replication server %q, schema server %q; retry the sync",
-					schema, table, c.replicationUUID, state.ServerUUID)
-			}
-		}
-	} else {
-		meta.AnchoredAt, err = GetCurrentBinlogPosition(ctx, c.client)
-	}
+	meta.AnchoredAt, err = GetCurrentBinlogPosition(ctx, c.client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to anchor column metadata for %s.%s: %w", schema, table, err)
 	}
@@ -207,24 +178,14 @@ func (c *schemaCache) get(ctx context.Context, schema, table string, tableID uin
 // out. The copy is shallow: it shares *tableMeta pointers with the live cache and they are
 // persisted into the state file, so tableMeta must stay immutable after insertion. applyDDL
 // and get replace an entry with a modified clone() rather than editing it in place.
-// GTID runs retain fresh SQL loads only after their executed transactions have been consumed.
-func (c *schemaCache) snapshot(upTo mysql.Position, gtidSet mysql.GTIDSet) map[string]*tableMeta {
+func (c *schemaCache) snapshot(upTo mysql.Position) map[string]*tableMeta {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	out := make(map[string]*tableMeta, len(c.tables))
 	for key, meta := range c.tables {
-		if c.gtidMode {
-			if meta.gtidAnchor == nil || (gtidSet != nil && gtidSet.Contain(meta.gtidAnchor)) {
-				out[key] = meta
-			}
-			continue
-		}
 		if meta.AnchoredAt.Compare(upTo) <= 0 {
 			out[key] = meta
 		}
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }
@@ -240,21 +201,6 @@ func (c *schemaCache) maxAnchor() mysql.Position {
 		}
 	}
 	return latest
-}
-
-// extendGTIDTarget makes a normal run consume the history needed to save its loaded schemas.
-func (c *schemaCache) extendGTIDTarget(target mysql.GTIDSet) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	for key, meta := range c.tables {
-		if meta.gtidAnchor == nil || target.Contain(meta.gtidAnchor) {
-			continue
-		}
-		if err := target.Update(meta.gtidAnchor.String()); err != nil {
-			return fmt.Errorf("failed to extend GTID target for column metadata of %s: %w", key, err)
-		}
-	}
-	return nil
 }
 
 func (c *schemaCache) load(ctx context.Context, schema, table string) (*tableMeta, error) {
@@ -306,7 +252,7 @@ func (c *schemaCache) load(ctx context.Context, schema, table string) (*tableMet
 // applied statement by statement.
 // MariaDB's /*M!...*/ wrapper, ALTER ONLINE and CREATE OR REPLACE are rewritten to the statement
 // they run before parsing.
-func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position, gtid mysql.GTIDSet) {
+func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position) {
 	if c.idle() {
 		return
 	}
@@ -317,7 +263,7 @@ func (c *schemaCache) applyDDL(query, defaultSchema string, pos mysql.Position, 
 		return
 	}
 
-	ev := ddlEvent{query: shortQuery(query), defaultSchema: defaultSchema, pos: pos, gtid: gtid}
+	ev := ddlEvent{query: shortQuery(query), defaultSchema: defaultSchema, pos: pos}
 
 	// Parse before taking c.mu: it reads only the query. DDL on objects with no columns (triggers,
 	// views, users, ...) needs no parse.
@@ -413,7 +359,7 @@ func (c *schemaCache) alterTableNoLock(stmt *ast.AlterTableStmt, ev ddlEvent) dd
 
 	// An entry anchored at or after this DDL was read from information_schema later, and may
 	// already include it; applying the DDL again would corrupt the entry.
-	if meta.includesDDL(ev) {
+	if meta.AnchoredAt.Compare(ev.pos) >= 0 {
 		c.deleteTableNoLock(key)
 		return ddlOutcome{dropped: []string{key}, reasons: []string{"cached metadata may already include this DDL"}}
 	}
@@ -452,7 +398,7 @@ func (c *schemaCache) renameTablesNoLock(ev ddlEvent, pairs []*ast.TableToTable)
 		c.deleteTableNoLock(oldKey)
 		c.deleteTableNoLock(newKey)
 
-		moved := hadOld && !meta.includesDDL(ev)
+		moved := hadOld && meta.AnchoredAt.Compare(ev.pos) < 0
 		if moved {
 			c.setTableNoLock(newKey, meta)
 			out.applied = append(out.applied, newKey)
@@ -497,19 +443,17 @@ func (c *schemaCache) createTableNoLock(stmt *ast.CreateTableStmt, ev ddlEvent) 
 	case stmt.ReferTable != nil:
 		srcSchema, srcKnown := tableSchema(ev.defaultSchema, stmt.ReferTable)
 		src, srcCached := c.getTableNoLock(c.tableKey(srcSchema, stmt.ReferTable.Name.O))
-		if !srcKnown || !srcCached || src.includesDDL(ev) {
+		if !srcKnown || !srcCached || src.AnchoredAt.Compare(ev.pos) >= 0 {
 			return c.dropTablesNoLock(ev, stmt.Table)
 		}
 		meta = src.clone()
 	case useColumnsFromCreate && stmt.Select == nil:
 		var err error
-		collation, anchor := c.schemaCollationNoLock(schema, ev)
-		if meta, err = tableMetaFromDef(stmt, collation); err != nil {
+		if meta, err = tableMetaFromDef(stmt, c.schemaCollationNoLock(schema, ev.pos)); err != nil {
 			out := c.dropTablesNoLock(ev, stmt.Table)
 			out.reasons = append(out.reasons, "cannot read CREATE TABLE: "+err.Error())
 			return out
 		}
-		meta.gtidAnchor = anchor
 	default:
 		return c.dropTablesNoLock(ev, stmt.Table)
 	}
@@ -531,7 +475,7 @@ func (c *schemaCache) dropTablesNoLock(ev ddlEvent, names ...*ast.TableName) ddl
 		key := c.tableKey(schema, name.Name.O)
 		if meta, ok := c.getTableNoLock(key); ok {
 			if meta.SchemaCollationID != 0 {
-				c.schemaDefaults[c.tableKey(schema, "")] = meta
+				c.schemaDefaults[c.tableKey(schema, "")] = meta.SchemaCollationID
 			}
 			c.deleteTableNoLock(key)
 			out.dropped = append(out.dropped, key)
@@ -583,10 +527,10 @@ func (c *schemaCache) alterSchemaNoLock(stmt *ast.AlterDatabaseStmt, ev ddlEvent
 	var out ddlOutcome
 	prefix := c.tableKey(schema, "")
 	if _, ok := c.schemaDefaults[prefix]; ok {
-		c.schemaDefaults[prefix] = &tableMeta{SchemaCollationID: id, AnchoredAt: ev.pos}
+		c.schemaDefaults[prefix] = id
 	}
 	for key, meta := range c.tables {
-		if strings.HasPrefix(key, prefix) && !meta.includesDDL(ev) {
+		if strings.HasPrefix(key, prefix) && meta.AnchoredAt.Compare(ev.pos) < 0 {
 			next := meta.clone()
 			next.SchemaCollationID, next.AnchoredAt = id, ev.pos
 			c.setTableNoLock(key, next)
@@ -596,18 +540,15 @@ func (c *schemaCache) alterSchemaNoLock(stmt *ast.AlterDatabaseStmt, ev ddlEvent
 	return out
 }
 
-// schemaCollationNoLock returns a database's default collation as of the event, read from a cached
-// table anchored before it, else from its last dropped table, or 0 when neither has it.
+// schemaCollationNoLock returns a database's default collation as of pos, read from a cached table
+// in it that is anchored before pos, else from its last dropped table, or 0 when neither has it.
 // The caller holds c.mu.
-func (c *schemaCache) schemaCollationNoLock(schema string, ev ddlEvent) (uint64, mysql.GTIDSet) {
+func (c *schemaCache) schemaCollationNoLock(schema string, pos mysql.Position) uint64 {
 	prefix := c.tableKey(schema, "")
 	for key, meta := range c.tables {
-		if strings.HasPrefix(key, prefix) && meta.SchemaCollationID != 0 && !meta.includesDDL(ev) {
-			return meta.SchemaCollationID, meta.gtidAnchor
+		if strings.HasPrefix(key, prefix) && meta.SchemaCollationID != 0 && meta.AnchoredAt.Compare(pos) < 0 {
+			return meta.SchemaCollationID
 		}
 	}
-	if meta := c.schemaDefaults[prefix]; meta != nil && (ev.gtid == nil || !meta.includesDDL(ev)) {
-		return meta.SchemaCollationID, meta.gtidAnchor
-	}
-	return 0, nil
+	return c.schemaDefaults[prefix]
 }

@@ -24,6 +24,9 @@ on:
       base-image-misses:
         description: 'JSON array of drivers whose base branch image is not in the registry yet; [] or empty means nothing to build.'
         value: ${{ jobs.preflight.outputs.base-image-misses }}
+      redundant:
+        description: 'true when a merge queue entry repeats a passed PR run on the same base, so the heavy jobs can skip.'
+        value: ${{ jobs.preflight.outputs.redundant }}
 
 jobs:
   preflight:
@@ -34,7 +37,9 @@ jobs:
       contents: read
       pull-requests: read
       packages: read
+      actions: read
     outputs:
+      redundant: ${{ steps.redundant.outputs.redundant }}
       drivers: ${{ steps.drivers.outputs.drivers }}
       driver-labels: ${{ steps.drivers.outputs.driver-labels }}
       sources: ${{ steps.sources.outputs.sources }}
@@ -42,12 +47,36 @@ jobs:
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
+      apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
       base-image-misses: ${{ steps.base-images.outputs.misses }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # The PR run leaves the base commit it tested against; the queue run compares it (next step).
+      - name: Record the base this PR run tests against
+        if: github.event_name == 'pull_request'
+        run: git rev-parse HEAD^1 > tested-base
+
+
+      - name: Upload tested base
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: tested-base-${{ github.event.pull_request.head.sha }}
+          path: tested-base
+          overwrite: true
+          retention-days: 14
+
+      - name: Detect a queue entry that repeats a passed PR run
+        id: redundant
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: echo "redundant=$(.github/scripts/redundant-queue-run.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve driver matrix
         id: drivers
@@ -77,7 +106,7 @@ jobs:
         id: compat
         env:
           DRIVERS: ${{ steps.drivers.outputs.drivers }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           REQUIRED_DRIVERS: '["db2","kafka","mongodb","mssql","mysql","oracle","postgres","s3"]'
         run: |
           set -euo pipefail
@@ -118,10 +147,10 @@ jobs:
 
       - name: Look up base branch images
         id: base-images
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           DOCKER_CLI_EXPERIMENTAL: enabled
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           DRIVERS: ${{ steps.compat.outputs.drivers }}
         run: |
           set -euo pipefail
@@ -148,6 +177,14 @@ jobs:
         uses: ./.github/actions/go-caches
         with:
           mode: lookup
+
+      - name: Look up base docker layer marker
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
+          lookup-only: true
 
   build-jar:
     name: Build Iceberg writer jar
@@ -177,7 +214,7 @@ jobs:
   apt-warm:
     name: Warm base docker layers
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]'
+    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.apt-warmed != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -191,7 +228,15 @@ jobs:
         run: |
           docker buildx build --target runtime-base \
             --cache-to type=gha,mode=max,scope=olake-base --cache-from type=gha,scope=olake-base . \
+            && echo "$GITHUB_SHA" > .apt-warmed \
             || echo "::warning::base layer warm failed (non-fatal)"
+
+      - name: Save base layer marker
+        if: hashFiles('.apt-warmed') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
 
   go-cache:
     name: Go checks + cache

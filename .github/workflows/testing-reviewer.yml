@@ -1,0 +1,56 @@
+name: Testing Reviewer
+
+on:
+  pull_request:
+    branches:
+      - "*"
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  review:
+    name: Testing Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      # The PR run leaves the base commit it tested against; the queue run compares it (next steps).
+      - name: Record the base this PR run tests against
+        if: github.event_name == 'pull_request'
+        run: git rev-parse HEAD^1 > reviewer-tested-base
+
+      - name: Upload tested base
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: reviewer-tested-base-${{ github.event.pull_request.head.sha }}
+          path: reviewer-tested-base
+          overwrite: true
+          retention-days: 14
+
+      # Redundant = this queue entry repeats a passed Testing Reviewer PR run on the same base.
+      - name: Detect a queue entry that repeats a passed PR run
+        id: redundant
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          REDUNDANT_WORKFLOW: testing-reviewer.yml
+          REDUNDANT_ARTIFACT_PREFIX: reviewer-tested-base
+        run: echo "redundant=$(.github/scripts/redundant-queue-run.sh)" >> "$GITHUB_OUTPUT"
+
+      # Step-level skip keeps the job green, so the required check still reports success.
+      - name: Testing review
+        if: steps.redundant.outputs.redundant != 'true'
+        run: |
+          sleep 60
+          echo "testing-reviewer ran (not redundant)"
