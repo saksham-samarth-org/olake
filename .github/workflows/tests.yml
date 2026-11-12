@@ -357,6 +357,7 @@ jobs:
           java-version: '17'
 
       - name: Setup VPN Client
+# queue-test: in-flight comment 5
         if: matrix.driver != 'oracle'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y openvpn iproute2 iputils-ping netcat-openbsd telnet
