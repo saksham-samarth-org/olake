@@ -52,5 +52,5 @@ jobs:
       - name: Testing review
         if: steps.redundant.outputs.redundant != 'true'
         run: |
-          sleep 60
+          sleep 120
           echo "testing-reviewer ran (not redundant)"
