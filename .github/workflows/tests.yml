@@ -97,6 +97,7 @@ jobs:
         run: |
           sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
           sudo chown -R 999:999 destination/iceberg/local-test/data
+# queue-test: in-flight comment 4
           sudo chmod -R 777 destination/iceberg/local-test/data
 
       - &driver-deps
