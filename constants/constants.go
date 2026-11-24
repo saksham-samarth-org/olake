@@ -137,3 +137,5 @@ var RESTCatalogs = []string{
 // queue test E
 
 // real status positive test
+
+// real status negative test
