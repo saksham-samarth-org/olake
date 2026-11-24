@@ -292,7 +292,7 @@ jobs:
   test-backward-compatibility-stub:
     name: Backward Compatibility with ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
     needs: [approve, integration-tests, base-images]
-    if: ${{ !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped') && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.approve.result == 'success' && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped') && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
     strategy:
       matrix:
         baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', github.event.pull_request.base.sha) || github.event_name == 'merge_group' && format('["{0}"]', github.event.merge_group.base_sha) || '[]') }}

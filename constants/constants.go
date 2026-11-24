@@ -133,3 +133,5 @@ var RESTCatalogs = []string{
 	"biglake",
 	"horizon",
 }
+
+// queue test E
