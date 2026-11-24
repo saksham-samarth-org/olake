@@ -21,16 +21,29 @@ on:
       base-image-misses:
         description: 'JSON array of drivers whose base branch image is not in the registry yet; [] or empty means nothing to build.'
         value: ${{ jobs.preflight.outputs.base-image-misses }}
+      redundant:
+        description: 'true when a merge queue entry has the same tree as a PR head whose required checks passed, so every job can skip.'
+        value: ${{ jobs.gate.outputs.skip }}
 
 jobs:
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+    uses: ./.github/workflows/queue-gate.yml
+
   preflight:
     name: Detect changes
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
       packages: read
+      actions: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
       sources: ${{ steps.sources.outputs.sources }}
@@ -73,7 +86,7 @@ jobs:
         id: compat
         env:
           DRIVERS: ${{ steps.drivers.outputs.drivers }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           REQUIRED_DRIVERS: '["db2","kafka","mongodb","mssql","mysql","oracle","postgres","s3"]'
         run: |
           set -euo pipefail
@@ -114,10 +127,10 @@ jobs:
 
       - name: Look up base branch images
         id: base-images
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           DOCKER_CLI_EXPERIMENTAL: enabled
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           DRIVERS: ${{ steps.compat.outputs.drivers }}
         run: |
           set -euo pipefail

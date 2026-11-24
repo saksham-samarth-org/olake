@@ -16,6 +16,8 @@ on:
     branches:
       - "*"
     paths: *security-paths
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       logLevel:
@@ -24,8 +26,17 @@ on:
         default: "warning"
 
 jobs:
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+    uses: ./.github/workflows/queue-gate.yml
+
   govulncheck:
     name: govulncheck
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -61,6 +72,8 @@ jobs:
 
   gosec:
     name: GoSec Security Scanner
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -74,6 +87,8 @@ jobs:
 
   trivy-go:
     name: trivy-go
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -92,6 +107,8 @@ jobs:
 
   trivy-java:
     name: trivy-java
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
