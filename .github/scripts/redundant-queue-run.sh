@@ -1,20 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-# Returns true if this merge queue entry has already passed a workflow
-# on the PR against the same base commit.
-# Returns false otherwise, including for events other than merge_group.
-# The PR workflow saves the base commit it tested in an artifact named
-# `<prefix>-<pr head sha>`, holding a file named `<prefix>`.
+# Returns true if this merge queue entry repeats a PR that already passed:
+# same tree as the PR head, and the PR head's "All Required Checks Passed"
+# status is success. Returns false otherwise, including for events other than
+# merge_group.
 #
-# REDUNDANT_WORKFLOW         workflow file to check (default: tests.yml)
-# REDUNDANT_ARTIFACT_PREFIX  artifact and file name prefix (default: tested-base)
+# REDUNDANT_GATE_CONTEXT  status to check (default: All Required Checks Passed)
 #
-# If another PR is ahead in the merge queue, this entry uses that PR's
-# queue commit as its base, so the base commits won't match.
+# If another PR is ahead in the merge queue, the trees differ, so CI runs.
 
-workflow="${REDUNDANT_WORKFLOW:-tests.yml}"
-prefix="${REDUNDANT_ARTIFACT_PREFIX:-tested-base}"
+gate_context="${REDUNDANT_GATE_CONTEXT:-All Required Checks Passed}"
 
 # Prints true when CI can be skipped for this merge queue entry, false otherwise.
 is_ci_skippable() {
@@ -32,33 +28,36 @@ is_ci_skippable() {
     return
   fi
 
-  # A successful run of the workflow must exist for the PR's head commit.
-  local pr_head run_id
+  # The queue commit must have the same tree as the PR head: the PR was up to
+  # date with its base, so the queue would test the files the PR already passed.
+  local pr_head queue_tree pr_tree
   pr_head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha)
-  run_id=$(gh run list \
-    --repo "$GITHUB_REPOSITORY" \
-    --workflow "$workflow" \
-    --event pull_request \
-    --commit "$pr_head" \
-    --status success \
-    --limit 1 \
-    --json databaseId \
-    --jq '.[0].databaseId // empty')
-  if [ -z "$run_id" ]; then
+  queue_tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$MERGE_GROUP_HEAD_SHA" --jq .tree.sha)
+  pr_tree=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$pr_head" --jq .tree.sha)
+  if [ -z "$queue_tree" ] || [ "$queue_tree" != "$pr_tree" ]; then
     echo false
     return
   fi
 
-  # That run must have left the base commit it tested against.
-  local dir
-  dir=$(mktemp -d)
-  if ! gh run download "$run_id" --repo "$GITHUB_REPOSITORY" -n "$prefix-$pr_head" -D "$dir" >/dev/null 2>&1; then
-    echo false
-    return
-  fi
-
-  # Skippable only when the queue entry is built on that same base commit.
-  if [ "$(tr -d '[:space:]' <"$dir/$prefix")" = "$MERGE_GROUP_BASE_SHA" ]; then
+  # And the PR head's gate status must be green (newest status first). This
+  # holds even when Tests never ran on the PR (no code changes).
+  local state
+  state=$(gh api \
+    "repos/$GITHUB_REPOSITORY/commits/$pr_head/statuses" \
+    --paginate \
+    --jq "[.[] | select(.context == \"$gate_context\")] | .[0].state // empty" \
+    | head -n 1)
+  if [ "$state" = "success" ]; then
+    # Audit trail for the skip. Goes to the step summary file, never stdout,
+    # because stdout is captured as the `skip` output.
+    {
+      echo "### Queue gate: CI skipped"
+      echo "- PR: #$pr"
+      echo "- PR head: \`$pr_head\`"
+      echo "- Queue commit: \`$MERGE_GROUP_HEAD_SHA\`"
+      echo "- Shared tree: \`$queue_tree\`"
+      echo "- \`$gate_context\` on PR head: \`$state\`"
+    } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
     echo true
   else
     echo false
