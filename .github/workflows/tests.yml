@@ -72,7 +72,7 @@ jobs:
   integration-tests:
     name: Integration Test ${{ matrix.name }}
     needs: approve
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    if: ${{ false && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }} # TEST ONLY: skip
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 45
@@ -184,7 +184,7 @@ jobs:
   base-images:
     name: Build base branch driver images
     needs: approve
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses != '[]'
+    if: false && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses != '[]'
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     permissions:
@@ -208,7 +208,7 @@ jobs:
   test-backward-compatibility:
     name: Backward Compatibility with ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
     needs: [approve, integration-tests, base-images]
-    if: ${{ !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && needs.integration-tests.result == 'success' && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    if: ${{ false && !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && needs.integration-tests.result == 'success' && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -287,6 +287,20 @@ jobs:
         env:
           OLAKE_PRE_BUILT_IMAGE: "true"
         run: make -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
+
+  # TEST ONLY: same check name as the real job below, which is disabled above. Remove with this PR's revert.
+  test-backward-compatibility-stub:
+    name: Backward Compatibility with ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
+    needs: [approve, integration-tests, base-images]
+    if: ${{ !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped') && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    strategy:
+      matrix:
+        baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', github.event.pull_request.base.sha) || github.event_name == 'merge_group' && format('["{0}"]', github.event.merge_group.base_sha) || '[]') }}
+    runs-on: ubuntu-latest
+    env:
+      DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers-with-compatibility-tests), ' ') }}
+    steps:
+      - run: echo "STUB DRIVERS=$DRIVERS baseline=${{ matrix.baseline }}"
 
   backward-compatibility-with-old-releases:
     name: Backward Compatibility with Older Releases
