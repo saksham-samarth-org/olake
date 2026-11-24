@@ -1,0 +1,34 @@
+name: Queue Gate
+
+# Reusable. Output `skip` is true when a merge queue entry repeats a passed PR
+# (see .github/scripts/redundant-queue-run.sh). Callers gate every job on it.
+
+on:
+  workflow_call:
+    outputs:
+      skip:
+        description: 'true when the merge queue entry repeats a passed PR, so every job can skip.'
+        value: ${{ jobs.gate.outputs.skip }}
+
+jobs:
+  gate:
+    name: Queue gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      skip: ${{ steps.decide.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: echo "skip=$(.github/scripts/redundant-queue-run.sh)" >> "$GITHUB_OUTPUT"

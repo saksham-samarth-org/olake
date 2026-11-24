@@ -6,6 +6,8 @@ on:
   pull_request:
     branches:
       - "*"
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       logLevel:
@@ -14,8 +16,17 @@ on:
         default: "warning"
 
 jobs:
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+    uses: ./.github/workflows/queue-gate.yml
+
   golangci:
     name: golangci-lint
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -33,6 +44,8 @@ jobs:
 
   build-check:
     name: Build
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
