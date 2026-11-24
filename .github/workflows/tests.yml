@@ -48,6 +48,7 @@ jobs:
       pull-requests: read
       packages: read
       actions: read
+      statuses: read
     with:
       go-checks: true
     secrets: inherit
@@ -290,7 +291,7 @@ jobs:
   backward-compatibility-with-old-releases:
     name: Backward Compatibility with Older Releases
     needs: approve
-    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.approve.outputs.drivers-with-compatibility-tests != '[]'
+    if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.approve.outputs.drivers-with-compatibility-tests != '[]'
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 90
