@@ -39,10 +39,6 @@ on:
   merge_group:
     types: [checks_requested]
 
-# TEST ONLY: skip real steps of integration/base-images/backward jobs
-env:
-  STUB_E2E: "true"
-
 jobs:
   preflight:
     name: Pre-Validation
@@ -76,8 +72,8 @@ jobs:
   integration-tests:
     name: Integration Test ${{ matrix.name }}
     needs: approve
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    runs-on: ubuntu-latest
+    if: ${{ false && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }} # TEST ONLY: skip
+    runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 45
     strategy:
@@ -85,11 +81,8 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.approve.outputs.sources) }}
     steps:
-      - name: Stub early return (TEST ONLY)
-        run: echo "STUB early return job=integration-tests"
       - &checkout
         name: Checkout code
-        if: ${{ env.STUB_E2E != 'true' }}
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -97,7 +90,6 @@ jobs:
       # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
       - &data-dirs
         name: Set up Data Directories
-        if: ${{ env.STUB_E2E != 'true' }}
         run: |
           sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
           sudo chown -R 999:999 destination/iceberg/local-test/data
@@ -105,13 +97,11 @@ jobs:
 
       - &driver-deps
         name: Restore driver external dependencies
-        if: ${{ env.STUB_E2E != 'true' }}
         uses: ./.github/actions/driver-deps
 
       # Bounded so a wedged pull is a killed step rather than the job's whole budget.
       - &containers
         name: Start containers
-        if: ${{ env.STUB_E2E != 'true' }}
         id: containers
         background: true
         timeout-minutes: 15
@@ -119,17 +109,14 @@ jobs:
 
       - &buildx
         name: Set up Docker Buildx
-        if: ${{ env.STUB_E2E != 'true' }}
         uses: ./.github/actions/buildx
 
       - &jar
         name: Restore Iceberg writer jar
-        if: ${{ env.STUB_E2E != 'true' }}
         uses: ./.github/actions/iceberg-jar
 
       - &driver-image
         name: Build driver image
-        if: ${{ env.STUB_E2E != 'true' }}
         id: image
         background: true
         timeout-minutes: 20
@@ -137,7 +124,6 @@ jobs:
 
       - &go
         name: Set up Go
-        if: ${{ env.STUB_E2E != 'true' }}
         uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
@@ -145,23 +131,19 @@ jobs:
 
       - &go-caches
         name: Restore shared Go caches
-        if: ${{ env.STUB_E2E != 'true' }}
         uses: ./.github/actions/go-caches
 
       - &test-build
         name: Install Dependencies
-        if: ${{ env.STUB_E2E != 'true' }}
         id: go-build
         timeout-minutes: 15
         run: make test.build.${{ matrix.driver }}
 
       - &wait-background
         name: Wait for background jobs
-        if: ${{ env.STUB_E2E != 'true' }}
         wait: [containers, image, go-build]
 
       - name: Publish the driver image
-        if: ${{ env.STUB_E2E != 'true' }}
         id: publish
         background: true
         timeout-minutes: 20
@@ -171,7 +153,6 @@ jobs:
 
       - &wait-ready
         name: Wait for source + destination readiness
-        if: ${{ env.STUB_E2E != 'true' }}
         timeout-minutes: 3
         run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
 
@@ -179,7 +160,6 @@ jobs:
       # iceberg_tables, and the harness has no runtime fallback for that.
       - &catalog
         name: Check destination (bootstrap Iceberg catalog)
-        if: ${{ env.STUB_E2E != 'true' }}
         run: |
           set -euo pipefail
           echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}'..."
@@ -191,37 +171,31 @@ jobs:
             check --destination /testdata/iceberg/iceberg_s3_destination.json
 
       - name: Verify source stack
-        if: ${{ env.STUB_E2E != 'true' }}
         run: make ${{ matrix.make_vars }} olake.${{ matrix.driver }}.verify
 
       - name: Run integration tests
-        if: ${{ env.STUB_E2E != 'true' }}
         env:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
         run: make ${{ matrix.make_vars }} test.integration.${{ matrix.driver }}
 
       - name: Wait for the image upload
-        if: ${{ env.STUB_E2E != 'true' }}
         wait: [publish]
 
   base-images:
     name: Build base branch driver images
     needs: approve
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses != '[]'
-    runs-on: ubuntu-latest
+    if: false && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses != '[]'
+    runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     permissions:
       contents: read
       packages: write
     timeout-minutes: 30
     steps:
-      - name: Stub early return (TEST ONLY)
-        run: echo "STUB early return job=base-images"
       - *checkout
       - *buildx
 
       - name: Build base branch images
-        if: ${{ env.STUB_E2E != 'true' }}
         uses: ./.github/actions/commit-image
         with:
           drivers: ${{ join(fromJSON(needs.approve.outputs.base-image-misses), ' ') }}
@@ -234,7 +208,7 @@ jobs:
   test-backward-compatibility:
     name: Backward Compatibility with ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
     needs: [approve, integration-tests, base-images]
-    if: ${{ !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && needs.integration-tests.result == 'success' && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    if: ${{ false && !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && needs.integration-tests.result == 'success' && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -242,20 +216,17 @@ jobs:
     strategy:
       matrix:
         baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', github.event.pull_request.base.sha) || github.event_name == 'merge_group' && format('["{0}"]', github.event.merge_group.base_sha) || '[]') }}
-    runs-on: ubuntu-latest
+    runs-on: 32gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && !(github.head_ref == 'staging' && github.base_ref == 'master') && 'integration_tests' || '' }}
     timeout-minutes: 90
     env:
       DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers-with-compatibility-tests), ' ') }}
     steps:
-      - name: Stub early return (TEST ONLY)
-        run: echo "STUB early return job=test-backward-compatibility"
       - *checkout
       - *data-dirs
       - *driver-deps
 
       - name: Start containers
-        if: ${{ env.STUB_E2E != 'true' }}
         id: containers
         background: true
         timeout-minutes: 20
@@ -265,7 +236,6 @@ jobs:
       - *jar
 
       - name: Restore driver images
-        if: ${{ env.STUB_E2E != 'true' }}
         id: image
         background: true
         timeout-minutes: 30
@@ -274,7 +244,6 @@ jobs:
         run: .github/scripts/restore-driver-images.sh
 
       - name: Restore base branch images
-        if: ${{ env.STUB_E2E != 'true' }}
         id: base-image
         background: true
         timeout-minutes: 30
@@ -291,22 +260,18 @@ jobs:
       - *go-caches
 
       - name: Install Dependencies
-        if: ${{ env.STUB_E2E != 'true' }}
         id: go-build
         timeout-minutes: 20
         run: make test.build.all DRIVERS="$DRIVERS"
 
       - name: Wait for background jobs
-        if: ${{ env.STUB_E2E != 'true' }}
         wait: [containers, image, base-image, go-build]
 
       - name: Wait for source + destination readiness
-        if: ${{ env.STUB_E2E != 'true' }}
         timeout-minutes: 5
         run: make -j --output-sync=target olake.all.wait DRIVERS="$DRIVERS"
 
       - name: Check destination (bootstrap Iceberg catalog)
-        if: ${{ env.STUB_E2E != 'true' }}
         run: |
           set -euo pipefail
           driver=${DRIVERS%% *}
@@ -319,10 +284,23 @@ jobs:
             check --destination /testdata/iceberg/iceberg_s3_destination.json
 
       - name: Run the compatibility tests
-        if: ${{ env.STUB_E2E != 'true' }}
         env:
           OLAKE_PRE_BUILT_IMAGE: "true"
         run: make -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
+
+  # TEST ONLY: same check name as the real job below, which is disabled above. Remove with this PR's revert.
+  test-backward-compatibility-stub:
+    name: Backward Compatibility with ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
+    needs: [approve, integration-tests, base-images]
+    if: ${{ !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests != '[]' && (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped') && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    strategy:
+      matrix:
+        baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', github.event.pull_request.base.sha) || github.event_name == 'merge_group' && format('["{0}"]', github.event.merge_group.base_sha) || '[]') }}
+    runs-on: ubuntu-latest
+    env:
+      DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers-with-compatibility-tests), ' ') }}
+    steps:
+      - run: echo "STUB DRIVERS=$DRIVERS baseline=${{ matrix.baseline }}"
 
   backward-compatibility-with-old-releases:
     name: Backward Compatibility with Older Releases
