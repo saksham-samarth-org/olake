@@ -1,0 +1,21 @@
+name: Testing Reviewer
+
+# Dummy-org only. Stand-in for a slow required check named "Testing Review".
+
+on:
+  pull_request:
+    branches:
+      - "*"
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  review:
+    name: Testing Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Testing review
+        run: |
+          sleep 120
+          echo "testing-reviewer ran"
