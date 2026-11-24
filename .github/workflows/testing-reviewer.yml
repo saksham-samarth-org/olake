@@ -17,5 +17,4 @@ jobs:
     steps:
       - name: Testing review
         run: |
-          sleep 120
           echo "testing-reviewer ran"
