@@ -42,7 +42,7 @@ jobs:
   preflight:
     name: Detect changes
     needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
+    if: "${{ !cancelled() && needs.gate.outputs.skip != 'true' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -60,8 +60,8 @@ jobs:
   build-jar:
     name: Build Iceberg writer jar
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.jar-cached
-      != 'true'
+    if: "${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers
+      != '[]' && needs.preflight.outputs.jar-cached != 'true' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -71,7 +71,8 @@ jobs:
   apt-warm:
     name: Warm base docker layers
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]'
+    if: "${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers
+      != '[]' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -81,8 +82,9 @@ jobs:
   go-cache:
     name: Go checks + cache
     needs: preflight
-    if: needs.preflight.outputs.drivers != '[]' && (needs.preflight.outputs.go-cached
-      != 'true' || needs.preflight.outputs.go-checks-changed == 'true')
+    if: "${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers
+      != '[]' && (needs.preflight.outputs.go-cached != 'true' || needs.preflight.outputs.go-checks-changed
+      == 'true') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
