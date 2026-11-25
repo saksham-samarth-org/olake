@@ -17,11 +17,12 @@ jobs:
       contents: read
       pull-requests: read
       statuses: read
+    if: github.event_name == 'merge_group'
     uses: "./.github/workflows/queue-gate.yml"
   unit-tests:
     name: Run Unit Tests
     needs: gate
-    if: needs.gate.outputs.skip != 'true'
+    if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     steps:
     - name: Stub
@@ -31,7 +32,7 @@ jobs:
   java-unit-tests:
     name: Run Java Unit Tests
     needs: gate
-    if: needs.gate.outputs.skip != 'true'
+    if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     steps:
     - name: Stub
