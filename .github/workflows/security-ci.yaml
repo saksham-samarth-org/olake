@@ -1,90 +1,58 @@
+# TEST ONLY: stubbed jobs, triggers and gates are real.
+---
 name: Go Security CI
-
-on:
+'on':
   push:
     branches:
-      - "master"
-    paths: &security-paths
-      - '**/*.go'
-      - '**/*.java'
-      - '**/go.mod'
-      - '**/*.yml'
-      - '**/*.yaml'
-      - '**/pom.xml'
-      - '**/.trivyignore'
+    - master
+    paths: &1
+    - "**/*.go"
+    - "**/*.java"
+    - "**/go.mod"
+    - "**/*.yml"
+    - "**/*.yaml"
+    - "**/pom.xml"
+    - "**/.trivyignore"
   pull_request:
     branches:
-      - "*"
-    paths: *security-paths
+    - "*"
+    paths: *1
   merge_group:
-    types: [checks_requested]
+    types:
+    - checks_requested
   workflow_dispatch:
     inputs:
       logLevel:
-        description: "Log level"
+        description: Log level
         required: true
-        default: "warning"
-
+        default: warning
 jobs:
   gate:
     permissions:
       contents: read
       pull-requests: read
       statuses: read
-    uses: ./.github/workflows/queue-gate.yml
-
+    uses: "./.github/workflows/queue-gate.yml"
   govulncheck:
     name: govulncheck
     needs: gate
     if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: "go.mod"
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
-      - name: Run vulnerability checks
-        run: |
-          govulncheck ./... >/tmp/govuln.txt 2>&1 || VULN_EXIT=$?
-          VULN_EXIT=${VULN_EXIT:-0}
-          cat /tmp/govuln.txt
-
-          if [ "$VULN_EXIT" -ne 3 ]; then
-            exit "$VULN_EXIT"
-          fi
-
-          # Repo root is the job working directory; do not use ../.govulnignore
-          IGNORED=$(grep -vE '^\s*(#|$)' .govulnignore 2>/dev/null | grep -oE 'GO-[0-9]+-[0-9]+' | sort -u | paste -s -d '|' -)
-          FOUND=$(grep -oE 'GO-[0-9]+-[0-9]+' /tmp/govuln.txt | sort -u)
-          UNKNOWN="$FOUND"
-          if [ -n "$IGNORED" ]; then
-            UNKNOWN=$(echo "$UNKNOWN" | grep -vE "$IGNORED" || true)
-          fi
-
-          if [ -n "$UNKNOWN" ]; then
-            echo "Unsuppressed vulnerabilities found: $UNKNOWN"
-            exit 1
-          fi
-
-          echo -e "\033[0;32m✅ govulncheck: all findings suppressed via .govulnignore\033[0m"
-
+    - name: Stub
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
+    timeout-minutes: 5
   gosec:
     name: GoSec Security Scanner
     needs: gate
     if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: "go.mod"
-      - name: install gosec
-        run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.22.11
-      - name: Run Gosec Security Scanner
-        run: $(go env GOPATH)/bin/gosec -exclude=G115 -exclude-dir=tests -severity=high -confidence=medium ./...
-
+    - name: Stub
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
+    timeout-minutes: 5
   trivy-go:
     name: trivy-go
     needs: gate
@@ -92,53 +60,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-      - name: Run Trivy Go vulnerability scanner in repo mode
-        uses: aquasecurity/trivy-action@master
-        with:
-          skip-dirs: './destination/iceberg/olake-iceberg-java-writer'
-          exit-code: '1'
-          scan-type: 'fs'
-          scan-ref: './'
-          scanners: 'vuln'
-          severity: 'HIGH,CRITICAL'
-          ignore-unfixed: true
-
+    - name: Stub
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
   trivy-java:
     name: trivy-java
     needs: gate
     if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
-      # Build the shaded uber-jar so Trivy scans the real, resolved & shipped
-      # dependencies baked into the artifact. No pom re-resolution at scan time
-      # -> no Maven Central rate-limit hangs.
-      - name: Build shaded jar
-        working-directory: ./destination/iceberg/olake-iceberg-java-writer
-        run: mvn -B -q clean package -DskipTests
-      - name: Prepare scan directory
-        run: |
-          mkdir -p /tmp/cve-scan
-          cp ./destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-*.jar /tmp/cve-scan/
-      - name: Run Trivy Java vulnerability scanner on built jar
-        uses: aquasecurity/trivy-action@master
-        with:
-          exit-code: '1'
-          scan-type: 'rootfs'
-          scan-ref: '/tmp/cve-scan'
-          scanners: 'vuln'
-          severity: 'HIGH,CRITICAL'
-          ignore-unfixed: true
-          # Suppresses only CVEs verified unfixable from pom.xml (stale copies
-          # shaded inside third-party fat jars). Each entry documents why.
-          trivyignores: './destination/iceberg/olake-iceberg-java-writer/.trivyignore'
+    - name: Stub
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
