@@ -1,56 +1,46 @@
+# TEST ONLY: stubbed jobs, triggers and gates are real.
+---
 name: Go Build and Lint
-on:
+'on':
   push:
     branches:
-      - "master"
+    - master
   pull_request:
     branches:
-      - "*"
+    - "*"
   merge_group:
-    types: [checks_requested]
+    types:
+    - checks_requested
   workflow_dispatch:
     inputs:
       logLevel:
-        description: "Log level"
+        description: Log level
         required: true
-        default: "warning"
-
+        default: warning
 jobs:
   gate:
     permissions:
       contents: read
       pull-requests: read
       statuses: read
-    uses: ./.github/workflows/queue-gate.yml
-
+    uses: "./.github/workflows/queue-gate.yml"
   golangci:
     name: golangci-lint
     needs: gate
     if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: "go.mod"
-
-      - name: Cache driver external dependencies
-        uses: ./.github/actions/driver-deps
-        with:
-          save: "true"
-
-      - name: golangci-lint
-        run: make olake.lint
-
+    - name: Stub
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
+    timeout-minutes: 5
   build-check:
     name: Build
     needs: gate
     if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v4
-        with:
-          go-version-file: "go.mod"
-      - name: Run build
-        run: make build
+    - name: Stub
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
+    timeout-minutes: 5
