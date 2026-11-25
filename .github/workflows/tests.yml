@@ -1,4 +1,4 @@
-# TEST ONLY: stubbed jobs, triggers and gates are real.
+# TEST ONLY: PR 1379 workflows, job bodies stubbed (real gate + real Detect changes).
 ---
 name: Tests
 'on':
@@ -49,7 +49,6 @@ jobs:
       contents: read
       pull-requests: read
       packages: read
-      actions: read
       statuses: read
     with:
       go-checks: true
@@ -93,6 +92,9 @@ jobs:
       && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses
       != '[]'"
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     timeout-minutes: 5
     steps:
     - name: Stub
@@ -108,6 +110,10 @@ jobs:
     if: "${{ !cancelled() && needs.approve.outputs.drivers-with-compatibility-tests
       != '[]' && needs.integration-tests.result == 'success' && (needs.base-images.result
       == 'success' || needs.base-images.result == 'skipped') }}"
+    permissions:
+      contents: read
+      packages: write
+      actions: read
     strategy:
       matrix:
         baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]',
@@ -140,6 +146,10 @@ jobs:
     name: Performance Test
     needs: approve
     if: github.head_ref == 'staging' && github.base_ref == 'master'
+    permissions:
+      actions: read
+      id-token: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
