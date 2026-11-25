@@ -1,4 +1,4 @@
-# TEST ONLY: stubbed jobs, triggers and gates are real.
+# TEST ONLY: PR 1379 workflows, job bodies stubbed (real gate + real Detect changes).
 ---
 name: Unit Tests
 'on':
@@ -13,16 +13,16 @@ permissions:
   contents: read
 jobs:
   gate:
+    if: github.event_name == 'merge_group'
     permissions:
       contents: read
       pull-requests: read
       statuses: read
-    if: github.event_name == 'merge_group'
     uses: "./.github/workflows/queue-gate.yml"
   unit-tests:
     name: Run Unit Tests
     needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
+    if: "${{ !cancelled() && needs.gate.outputs.skip != 'true' }}"
     runs-on: ubuntu-latest
     steps:
     - name: Stub
@@ -32,7 +32,7 @@ jobs:
   java-unit-tests:
     name: Run Java Unit Tests
     needs: gate
-    if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
+    if: "${{ !cancelled() && needs.gate.outputs.skip != 'true' }}"
     runs-on: ubuntu-latest
     steps:
     - name: Stub

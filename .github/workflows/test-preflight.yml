@@ -1,4 +1,4 @@
-# TEST ONLY: real gate + real Detect changes; heavy jobs stubbed.
+# TEST ONLY: PR 1379 workflows, job bodies stubbed (real gate + real Detect changes).
 ---
 name: Test Preflight
 'on':
@@ -33,11 +33,11 @@ name: Test Preflight
         value: "${{ jobs.gate.outputs.skip }}"
 jobs:
   gate:
+    if: github.event_name == 'merge_group'
     permissions:
       contents: read
       pull-requests: read
       statuses: read
-    if: github.event_name == 'merge_group'
     uses: "./.github/workflows/queue-gate.yml"
   preflight:
     name: Detect changes
@@ -49,7 +49,6 @@ jobs:
       contents: read
       pull-requests: read
       packages: read
-      actions: read
     outputs:
       drivers: "${{ steps.drivers.outputs.drivers }}"
       sources: "${{ steps.sources.outputs.sources }}"
@@ -167,7 +166,8 @@ jobs:
     timeout-minutes: 5
     steps:
     - name: Stub
-      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }}"'
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
   apt-warm:
     name: Warm base docker layers
     needs: preflight
@@ -177,7 +177,8 @@ jobs:
     timeout-minutes: 5
     steps:
     - name: Stub
-      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }}"'
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
   go-cache:
     name: Go checks + cache
     needs: preflight
@@ -188,4 +189,5 @@ jobs:
     timeout-minutes: 5
     steps:
     - name: Stub
-      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }}"'
+      run: 'echo "STUB PASSED: ${{ github.workflow }} / ${{ github.job }} (${{ github.event_name
+        }})"'
